@@ -9,7 +9,7 @@ Composes ContextPrime shared utilities:
 Usage::
 
     import asyncio
-    from src.crawl_prime.pipeline import CrawlPrimePipeline
+    from crawl_prime.pipeline import CrawlPrimePipeline
 
     async def main():
         cp = CrawlPrimePipeline(collection="my_web_kb")
@@ -23,23 +23,27 @@ Usage::
 import sys
 from pathlib import Path
 
-# Ensure ContextPrime is importable
-_DOCTAGS_ROOT = Path(__file__).resolve().parents[3] / "doctags_rag"
-if str(_DOCTAGS_ROOT) not in sys.path:
-    sys.path.insert(0, str(_DOCTAGS_ROOT))
+# Dev-mode fallback: if contextprime is not installed as a package,
+# add the sibling doctags_rag directory to sys.path.
+try:
+    import contextprime  # noqa: F401 — check if installed
+except ImportError:
+    _DOCTAGS_ROOT = Path(__file__).resolve().parents[3] / "doctags_rag"
+    if _DOCTAGS_ROOT.exists() and str(_DOCTAGS_ROOT) not in sys.path:
+        sys.path.insert(0, str(_DOCTAGS_ROOT))
 
 from typing import Optional, Any
 from loguru import logger
 
-from src.pipelines.web_ingestion import WebIngestionPipeline
-from src.pipelines.document_ingestion import IngestionReport as WebIngestionReport
-from src.pipelines.document_ingestion import DocumentIngestionPipeline, DocumentIngestionConfig
-from src.retrieval.hybrid_retriever import HybridRetriever
-from src.retrieval.qdrant_manager import QdrantManager
-from src.agents.agentic_pipeline import AgenticPipeline, AgenticResult
-from src.core.config import QdrantConfig, Neo4jConfig
-from src.knowledge_graph.neo4j_manager import Neo4jManager
-from src.knowledge_graph.graph_queries import GraphQueryInterface
+from contextprime.pipelines.web_ingestion import WebIngestionPipeline
+from contextprime.pipelines.document_ingestion import IngestionReport as WebIngestionReport
+from contextprime.pipelines.document_ingestion import DocumentIngestionPipeline, DocumentIngestionConfig
+from contextprime.retrieval.hybrid_retriever import HybridRetriever
+from contextprime.retrieval.qdrant_manager import QdrantManager
+from contextprime.agents.agentic_pipeline import AgenticPipeline, AgenticResult
+from contextprime.core.config import QdrantConfig, Neo4jConfig
+from contextprime.knowledge_graph.neo4j_manager import Neo4jManager
+from contextprime.knowledge_graph.graph_queries import GraphQueryInterface
 
 
 class CrawlPrimePipeline:

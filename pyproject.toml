@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "crawlprime"
+version = "0.1.0"
+description = "Web RAG — crawl, index, and query live web content"
+requires-python = ">=3.11"
+dependencies = [
+    "contextprime @ git+https://github.com/shymonski-dev/contextprime.git#subdirectory=doctags_rag",
+    "crawl4ai>=0.8.0,<0.9.0",
+    "playwright>=1.49.0",
+    "pydantic>=2.0.0",
+    "loguru>=0.7.0",
+    "python-dotenv>=1.0.0",
+    "PyYAML>=6.0",
+    "aiofiles>=24.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.25.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["crawl_prime*"]
