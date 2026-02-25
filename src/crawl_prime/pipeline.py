@@ -44,6 +44,7 @@ from contextprime.agents.agentic_pipeline import AgenticPipeline, AgenticResult
 from contextprime.core.config import QdrantConfig, Neo4jConfig
 from contextprime.knowledge_graph.neo4j_manager import Neo4jManager
 from contextprime.knowledge_graph.graph_queries import GraphQueryInterface
+from contextprime.knowledge_graph.graph_ingestor import GraphIngestionManager
 
 
 class CrawlPrimePipeline:
@@ -94,17 +95,24 @@ class CrawlPrimePipeline:
         self._storage_path = storage_path or Path("data/crawlprime")
         self._storage_path.mkdir(parents=True, exist_ok=True)
 
-        # Ingestion pipeline
-        ingestion_cfg = DocumentIngestionConfig(
-            qdrant_collection=collection,
-            create_qdrant_collection=True,
-        )
-        self._storage = DocumentIngestionPipeline(config=ingestion_cfg)
-        self._web_ingestion = WebIngestionPipeline(
-            document_ingestion_pipeline=self._storage,
+        # Shared Qdrant config — used for both ingestion and retrieval so that
+        # the explicit qdrant_host/qdrant_port params are always honoured
+        # (DocumentIngestionPipeline would otherwise lazily create QdrantManager()
+        # from get_settings() which may point to a different host).
+        qdrant_cfg = QdrantConfig(
+            host=qdrant_host,
+            port=qdrant_port,
+            collection_name=collection,
         )
 
-        # Neo4j (graceful fallback if unreachable)
+        # Neo4j (graceful fallback if unreachable).
+        # Two separate Neo4jManager instances are created from the same config:
+        # one for retrieval (self._neo4j) and one for ingestion (self._graph_ingestor).
+        # This avoids shared-close issues while ensuring both use the caller's params.
+        self._neo4j = None
+        self._graph_queries = None
+        self._graph_ingestor = None
+        _graph_weight = 0.0
         try:
             neo4j_cfg = Neo4jConfig(
                 uri=f"bolt://{neo4j_host}:{neo4j_port}",
@@ -113,19 +121,29 @@ class CrawlPrimePipeline:
             )
             self._neo4j = Neo4jManager(config=neo4j_cfg)
             self._graph_queries = GraphQueryInterface(neo4j_manager=self._neo4j)
+            self._graph_ingestor = GraphIngestionManager(
+                neo4j_manager=Neo4jManager(config=neo4j_cfg)
+            )
             _graph_weight = graph_weight
         except Exception as err:
             logger.warning("Neo4j unavailable, graph retrieval disabled: %s", err)
-            self._neo4j = None
-            self._graph_queries = None
-            _graph_weight = 0.0
+
+        # Ingestion pipeline — pass explicit managers so ingestion uses the
+        # same Qdrant host and Neo4j credentials as the caller specified.
+        ingestion_cfg = DocumentIngestionConfig(
+            qdrant_collection=collection,
+            create_qdrant_collection=True,
+        )
+        self._storage = DocumentIngestionPipeline(
+            config=ingestion_cfg,
+            qdrant_manager=QdrantManager(config=qdrant_cfg),
+            graph_ingestor=self._graph_ingestor,
+        )
+        self._web_ingestion = WebIngestionPipeline(
+            document_ingestion_pipeline=self._storage,
+        )
 
         # Retrieval pipeline
-        qdrant_cfg = QdrantConfig(
-            host=qdrant_host,
-            port=qdrant_port,
-            collection_name=collection,
-        )
         self._retriever = HybridRetriever(
             qdrant_manager=QdrantManager(config=qdrant_cfg),
             neo4j_manager=self._neo4j,
@@ -201,9 +219,14 @@ class CrawlPrimePipeline:
 
     def close(self) -> None:
         """Release resources."""
-        try:
-            self._storage.close()
-        except Exception:
-            pass
-        if self._neo4j:
-            self._neo4j.close()
+        for resource in (self._storage, self._retriever):
+            try:
+                resource.close()
+            except Exception:
+                pass
+        for neo4j in (self._neo4j, getattr(self._graph_ingestor, "_neo4j_manager", None)):
+            try:
+                if neo4j is not None:
+                    neo4j.close()
+            except Exception:
+                pass
