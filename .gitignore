@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Data / runtime output
+data/output/
+data/crawlprime/
+
+# Environment / secrets
+.env
+.env.*
+
+# Claude Code
+.claude/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/

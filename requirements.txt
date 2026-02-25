@@ -1,0 +1,22 @@
+# CrawlPrime Dependencies
+
+# Web Crawling
+crawl4ai>=0.8.0,<0.9.0
+playwright==1.49.1
+
+# Data Processing
+pydantic==2.11.0
+python-slugify==8.0.1
+beautifulsoup4==4.12.3
+
+# Utilities
+loguru==0.7.3
+python-dotenv==1.0.1
+PyYAML==6.0.2
+aiofiles==24.1.0
+
+# Testing
+pytest==8.3.4
+pytest-asyncio==0.25.3
+pytest-httpserver>=1.1.0
+testcontainers[qdrant]>=4.14.1
