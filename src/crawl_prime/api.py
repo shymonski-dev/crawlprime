@@ -11,6 +11,8 @@ Run with:
   uvicorn crawl_prime.api:app --reload --port 8001
 """
 
+import asyncio
+import os
 import sys
 import uuid
 from contextlib import asynccontextmanager
@@ -46,7 +48,14 @@ async def lifespan(app: FastAPI):
       - Guarantees close() is called even if startup raises mid-way
       - Is safe across all uvicorn worker configurations
     """
-    app.state.pipeline = CrawlPrimePipeline()
+    app.state.pipeline = CrawlPrimePipeline(
+        neo4j_host=os.getenv("NEO4J_HOST", "localhost"),
+        neo4j_port=int(os.getenv("NEO4J_PORT", "7687")),
+        neo4j_user=os.getenv("NEO4J_USERNAME", "neo4j"),
+        neo4j_password=os.getenv("NEO4J_PASSWORD", "password"),
+        qdrant_host=os.getenv("QDRANT_HOST", "localhost"),
+        qdrant_port=int(os.getenv("QDRANT_PORT", "6333")),
+    )
     yield
     app.state.pipeline.close()
 
@@ -61,8 +70,11 @@ app = FastAPI(
 # ── In-memory job store for background ingest tasks ─────────────────────────
 # Keyed by job_id (hex UUID).  In a multi-worker deployment this should be
 # replaced with a shared store (Redis, database, etc.).
+# Entries are evicted automatically _JOB_TTL_SECONDS after they reach a
+# terminal state (done / error) to prevent unbounded growth.
 
 _jobs: Dict[str, dict] = {}
+_JOB_TTL_SECONDS = 3600  # 1 hour
 
 
 # ── Request / response models ────────────────────────────────────────────────
@@ -106,6 +118,11 @@ async def _run_ingest(job_id: str, url: str) -> None:
         )
     except Exception as exc:
         _jobs[job_id].update(status="error", error=str(exc))
+    finally:
+        # Evict the job entry after TTL to prevent unbounded memory growth.
+        asyncio.get_running_loop().call_later(
+            _JOB_TTL_SECONDS, _jobs.pop, job_id, None
+        )
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────

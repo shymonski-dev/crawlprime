@@ -107,9 +107,8 @@ class CrawlPrimePipeline:
         )
 
         # Neo4j (graceful fallback if unreachable).
-        # Two separate Neo4jManager instances are created from the same config:
-        # one for retrieval (self._neo4j) and one for ingestion (self._graph_ingestor).
-        # This avoids shared-close issues while ensuring both use the caller's params.
+        # A single Neo4jManager is shared by retrieval and ingestion — the driver
+        # maintains an internal connection pool that handles both concurrently.
         self._neo4j = None
         self._graph_queries = None
         self._graph_ingestor = None
@@ -122,8 +121,11 @@ class CrawlPrimePipeline:
             )
             self._neo4j = Neo4jManager(config=neo4j_cfg)
             self._graph_queries = GraphQueryInterface(neo4j_manager=self._neo4j)
+            # Share the same Neo4jManager for ingestion — the driver uses an
+            # internal connection pool, so a single driver handles concurrent
+            # ingestion and retrieval sessions without redundant pool overhead.
             self._graph_ingestor = GraphIngestionManager(
-                neo4j_manager=Neo4jManager(config=neo4j_cfg)
+                neo4j_manager=self._neo4j
             )
             _graph_weight = graph_weight
         except Exception as err:
@@ -242,10 +244,9 @@ class CrawlPrimePipeline:
                     qdrant.close()
             except Exception:
                 pass
-        # Close both Neo4j connections (retrieval + ingestion).
-        for neo4j in (self._neo4j, getattr(self._graph_ingestor, "_neo4j_manager", None)):
-            try:
-                if neo4j is not None:
-                    neo4j.close()
-            except Exception:
-                pass
+        # Close the Neo4j manager (shared by retrieval and ingestion).
+        try:
+            if self._neo4j is not None:
+                self._neo4j.close()
+        except Exception:
+            pass
