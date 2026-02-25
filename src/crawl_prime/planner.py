@@ -17,13 +17,24 @@ from pathlib import Path
 from enum import Enum
 from typing import Optional
 
-_DOCTAGS_ROOT = Path(__file__).resolve().parents[3] / "doctags_rag"
-if str(_DOCTAGS_ROOT) not in sys.path:
-    sys.path.insert(0, str(_DOCTAGS_ROOT))
+# Dev-mode fallback: if contextprime is not installed as a package,
+# add the sibling doctags_rag directory to sys.path.
+try:
+    import contextprime  # noqa: F401 — check if installed
+except ImportError:
+    _DOCTAGS_ROOT = Path(__file__).resolve().parents[3] / "doctags_rag"
+    if _DOCTAGS_ROOT.exists() and str(_DOCTAGS_ROOT) not in sys.path:
+        sys.path.insert(0, str(_DOCTAGS_ROOT))
 
-from src.agents.planning_agent import PlanStep, StepType, ExecutionMode
+from contextprime.agents.planning_agent import PlanStep, StepType, ExecutionMode
 
+# First pass: capture everything that looks like a URL (any non-whitespace).
 _URL_RE = re.compile(r'https?://\S+')
+# Second pass: strip trailing punctuation that is almost never part of a URL
+# but frequently terminates one in prose ("see https://example.com.").
+# Periods, commas and closing brackets are stripped from the right only,
+# so mid-URL punctuation (domain dots, path slashes) is preserved.
+_TRAILING_PUNCT_RE = re.compile(r'[.,;:!?)\]\'"<>]+$')
 
 
 class WebStepType(Enum):
@@ -52,28 +63,35 @@ def prepend_web_ingestion_step(
     if not url_match:
         return steps, None
 
+    # Strip trailing punctuation that commonly follows URLs in prose.
+    url = _TRAILING_PUNCT_RE.sub("", url_match.group())
+
     web_step_id = f"step_{step_counter_start}"
 
     web_step = PlanStep(
         step_id=web_step_id,
         step_type=WebStepType.WEB_INGESTION,  # type: ignore[arg-type]
-        description=f"Ingest web content from {url_match.group()}",
-        parameters={"url": url_match.group()},
+        description=f"Ingest web content from {url}",
+        parameters={"url": url},
         dependencies=[],
         execution_mode=ExecutionMode.SEQUENTIAL,
     )
 
-    # Renumber existing steps by +1 and add dependency on web ingestion
-    # for all RETRIEVAL steps that have no dependencies yet.
+    def _bump(step_id: str) -> str:
+        """Increment the numeric suffix of a step_id by 1."""
+        return f"step_{int(step_id.split('_')[-1]) + 1}"
+
+    # Renumber existing steps by +1 and remap ALL dependency references so
+    # the DAG remains consistent.  RETRIEVAL steps that had no dependencies
+    # gain a new dependency on the web-ingestion step.
     renumbered = []
     for step in steps:
-        old_id = step.step_id
-        # Bump the numeric suffix
-        num = int(old_id.split("_")[-1]) + 1
-        new_id = f"step_{num}"
-        deps = step.dependencies
-        if step.step_type == StepType.RETRIEVAL and not deps:
+        new_id = _bump(step.step_id)
+        if step.step_type == StepType.RETRIEVAL and not step.dependencies:
             deps = [web_step_id]
+        else:
+            # Remap every dependency to its new (bumped) ID.
+            deps = [_bump(d) for d in step.dependencies]
         renumbered.append(PlanStep(
             step_id=new_id,
             step_type=step.step_type,
