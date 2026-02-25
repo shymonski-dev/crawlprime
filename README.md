@@ -40,12 +40,15 @@ HybridRetriever, AgenticPipeline, QdrantManager, Neo4jManager.
 ## Installation
 
 ```bash
-# 1. Ensure ContextPrime (doctags_rag) is in the parent directory
-# 2. Install CrawlPrime dependencies (includes crawl4ai 0.8.x)
+# Option A — standalone install (fetches ContextPrime from GitHub)
+pip install -e .
+playwright install chromium
+
+# Option B — dev mode (ContextPrime cloned as sibling directory)
 pip install -r requirements.txt
 playwright install chromium
 
-# 3. Start services (Qdrant + Neo4j)
+# Start services (Qdrant + Neo4j)
 docker-compose -f ../docker-compose.yml up -d
 ```
 
@@ -55,7 +58,7 @@ docker-compose -f ../docker-compose.yml up -d
 
 ```python
 import asyncio
-from src.crawl_prime.pipeline import CrawlPrimePipeline
+from crawl_prime.pipeline import CrawlPrimePipeline
 
 async def main():
     cp = CrawlPrimePipeline(collection="my_web_kb", enable_synthesis=True)
@@ -75,13 +78,13 @@ asyncio.run(main())
 ### CLI
 
 ```bash
-python -m src.crawl_prime.main --url "https://example.com" --output data/output
+python -m crawl_prime.main --url "https://example.com" --output data/output
 ```
 
 ### REST API
 
 ```bash
-uvicorn src.crawl_prime.api:app --reload --port 8001
+uvicorn crawl_prime.api:app --reload --port 8001
 ```
 
 ```bash
@@ -127,6 +130,9 @@ automatically drops to 0.0 and the remaining weight shifts to vector.
 OPENAI_API_KEY=sk-...             # Required for LLM synthesis
 QDRANT_HOST=localhost              # Qdrant host (default: localhost)
 QDRANT_PORT=6333                   # Qdrant port (default: 6333)
+NEO4J_URI=bolt://localhost:7687    # Neo4j URI
+NEO4J_USERNAME=neo4j               # Neo4j username
+NEO4J_PASSWORD=yourpassword        # Neo4j password
 
 # Optional: route LLM calls through OpenRouter
 OPENAI_BASE_URL=https://openrouter.ai/api/v1
@@ -151,15 +157,22 @@ async with AsyncWebCrawler(config=BrowserConfig(headless=True)) as crawler:
 ## Testing
 
 ```bash
-# Unit tests (always — no Docker needed)
-pytest tests/test_processing.py -v
+# Unit tests (no Docker needed)
+.venv/bin/python -m pytest tests/test_processing.py -v
 
 # Integration tests (requires Docker + Playwright + OPENAI_API_KEY)
-pytest tests/integration/test_pipeline_e2e.py -v -m integration
+.venv/bin/python -m pytest tests/integration/test_pipeline_e2e.py -v -m integration
+
+# All tests except real-web
+.venv/bin/python -m pytest tests/ -m "not real_web"
 
 # Real-web smoke test (requires live internet + Docker + OPENAI_API_KEY)
-pytest tests/integration/test_real_web.py -v -m real_web
+.venv/bin/python -m pytest tests/integration/test_real_web.py -v -m real_web
 ```
+
+The integration conftest automatically loads `.env` from the sibling `doctags_rag/`
+directory and overrides `QDRANT_HOST=localhost` so tests work against local Docker
+containers regardless of what the `.env` specifies for production.
 
 ## Relationship to ContextPrime
 
