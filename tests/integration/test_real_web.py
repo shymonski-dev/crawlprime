@@ -18,13 +18,16 @@ import sys
 import uuid
 from pathlib import Path
 
-_DOCTAGS_ROOT = Path(__file__).resolve().parents[3] / "doctags_rag"
-if str(_DOCTAGS_ROOT) not in sys.path:
-    sys.path.insert(0, str(_DOCTAGS_ROOT))
+try:
+    import contextprime  # noqa: F401 — check if installed
+except ImportError:
+    _DOCTAGS_ROOT = Path(__file__).resolve().parents[3] / "doctags_rag"
+    if _DOCTAGS_ROOT.exists() and str(_DOCTAGS_ROOT) not in sys.path:
+        sys.path.insert(0, str(_DOCTAGS_ROOT))
 
 import pytest
 from .conftest import requires_services, _qdrant_reachable
-from src.crawl_prime.pipeline import CrawlPrimePipeline
+from crawl_prime.pipeline import CrawlPrimePipeline
 
 pytestmark = pytest.mark.real_web
 
@@ -67,6 +70,7 @@ def ingested_pipeline(real_collection_name, cleanup_real_collection):
     pipeline = CrawlPrimePipeline(
         collection=real_collection_name,
         enable_synthesis=True,
+        neo4j_password=os.getenv("NEO4J_PASSWORD", "replace_with_strong_neo4j_password"),
     )
     report = asyncio.get_event_loop().run_until_complete(
         pipeline.ingest(_SITE_URL)
