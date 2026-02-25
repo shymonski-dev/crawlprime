@@ -12,10 +12,11 @@ Usage::
     from crawl_prime.pipeline import CrawlPrimePipeline
 
     async def main():
-        cp = CrawlPrimePipeline(collection="my_web_kb")
-        await cp.ingest("https://example.com")
-        result = await cp.query("What services does the site offer?")
-        print(result.answer)
+        with CrawlPrimePipeline(collection="my_web_kb") as cp:
+            await cp.ingest("https://example.com")
+            result = await cp.query("What services does the site offer?")
+            print(result.answer)
+        # Neo4j and Qdrant connections closed automatically on exit
 
     asyncio.run(main())
 """
@@ -218,6 +219,12 @@ class CrawlPrimePipeline:
             max_iterations=max_iterations,
             min_quality_threshold=min_quality_threshold,
         )
+
+    def __enter__(self) -> "CrawlPrimePipeline":
+        return self
+
+    def __exit__(self, *_) -> None:
+        self.close()
 
     def close(self) -> None:
         """Release resources."""

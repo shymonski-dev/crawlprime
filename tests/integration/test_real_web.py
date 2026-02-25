@@ -77,7 +77,8 @@ def ingested_pipeline(real_collection_name, cleanup_real_collection):
         f"Ingestion of {_SITE_URL} produced no chunks. "
         f"Failed docs: {report.failed_documents}"
     )
-    return pipeline
+    yield pipeline
+    pipeline.close()
 
 
 @requires_services
