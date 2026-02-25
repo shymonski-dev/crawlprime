@@ -72,9 +72,7 @@ def ingested_pipeline(real_collection_name, cleanup_real_collection):
         enable_synthesis=True,
         neo4j_password=os.getenv("NEO4J_PASSWORD", "replace_with_strong_neo4j_password"),
     )
-    report = asyncio.get_event_loop().run_until_complete(
-        pipeline.ingest(_SITE_URL)
-    )
+    report = asyncio.run(pipeline.ingest(_SITE_URL))
     assert report.chunks_ingested > 0, (
         f"Ingestion of {_SITE_URL} produced no chunks. "
         f"Failed docs: {report.failed_documents}"
