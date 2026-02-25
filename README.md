@@ -1,11 +1,11 @@
 # CrawlPrime
 
-**Web RAG — crawl, index, and query live web content.**
+**Standalone web RAG service — crawl, index, and query live web content.**
 
-CrawlPrime is a standalone web RAG built on top of **ContextPrime** shared utilities.
-It transforms dynamic websites into structured, queryable knowledge — using the same
-DocTags hierarchy, vector storage, and hybrid retrieval that powers ContextPrime
-document RAG.
+CrawlPrime is a standalone web RAG service built on **ContextPrime**. It exposes web
+ingestion as an async API with job tracking and provides a dedicated pipeline for
+web-first deployments. ContextPrime supplies all shared retrieval, ingestion, and
+agentic infrastructure; CrawlPrime adds the web-first orchestration, REST API, and CLI.
 
 ## Architecture
 
@@ -61,16 +61,15 @@ import asyncio
 from crawl_prime.pipeline import CrawlPrimePipeline
 
 async def main():
-    cp = CrawlPrimePipeline(collection="my_web_kb", enable_synthesis=True)
+    with CrawlPrimePipeline(collection="my_web_kb", enable_synthesis=True) as cp:
+        # Crawl and index a site
+        report = await cp.ingest("https://example.com")
+        print(f"Indexed {report.chunks_ingested} chunks")
 
-    # Crawl and index a site
-    report = await cp.ingest("https://example.com")
-    print(f"Indexed {report.chunks_ingested} chunks")
-
-    # Query it
-    result = await cp.query("What services does the site offer?")
-    print(result.answer)
-    cp.close()
+        # Query it
+        result = await cp.query("What services does the site offer?")
+        print(result.answer)
+    # Neo4j and Qdrant connections closed automatically on exit
 
 asyncio.run(main())
 ```
@@ -88,16 +87,23 @@ uvicorn crawl_prime.api:app --reload --port 8001
 ```
 
 ```bash
-# Ingest a URL
+# Ingest a URL (returns immediately with a job_id; crawling runs in background)
 curl -X POST http://localhost:8001/ingest \
   -H "Content-Type: application/json" \
   -d '{"url": "https://example.com"}'
+# → {"job_id": "a3f9...", "status": "pending", "url": "https://example.com"}
+
+# Poll ingest job status
+curl http://localhost:8001/ingest/a3f9...
+# → {"job_id": "a3f9...", "status": "done", "chunks_ingested": 42, "failed": []}
 
 # Query
 curl -X POST http://localhost:8001/query \
   -H "Content-Type: application/json" \
   -d '{"query": "What services does the site offer?"}'
 ```
+
+Ingest jobs are evicted from memory automatically 1 hour after they reach a terminal state (`done` or `error`).
 
 ## Constructor Parameters
 
@@ -130,7 +136,8 @@ automatically drops to 0.0 and the remaining weight shifts to vector.
 OPENAI_API_KEY=sk-...             # Required for LLM synthesis
 QDRANT_HOST=localhost              # Qdrant host (default: localhost)
 QDRANT_PORT=6333                   # Qdrant port (default: 6333)
-NEO4J_URI=bolt://localhost:7687    # Neo4j URI
+NEO4J_HOST=localhost               # Neo4j host (default: localhost)
+NEO4J_PORT=7687                    # Neo4j bolt port (default: 7687)
 NEO4J_USERNAME=neo4j               # Neo4j username
 NEO4J_PASSWORD=yourpassword        # Neo4j password
 
@@ -140,6 +147,8 @@ OPENAI_BASE_URL=https://openrouter.ai/api/v1
 # Optional: enable LLM query decomposition for complex queries
 DOCTAGS_LLM_DECOMPOSITION=true
 ```
+
+The REST API (`api.py`) reads all six connection variables at startup via `os.getenv()`. The `CrawlPrimePipeline` constructor accepts them as explicit keyword arguments for programmatic use.
 
 ## crawl4ai 0.8.x API
 
@@ -176,13 +185,20 @@ containers regardless of what the `.env` specifies for production.
 
 ## Relationship to ContextPrime
 
+**ContextPrime** is the universal RAG platform for structured content — documents and
+web pages. It provides all shared retrieval, ingestion, and agentic infrastructure.
+
+**CrawlPrime** is a standalone web RAG service built on ContextPrime. It adds the
+async ingest API, job tracking, URL-aware query planning, and a web-first pipeline.
+
 | Concern | ContextPrime | CrawlPrime |
 |---|---|---|
 | PDF / DOCX / HTML file ingestion | ✓ | — |
-| Document query pipeline | ✓ | — |
-| Web crawling + indexing | utility only | ✓ (orchestrates) |
-| Web query pipeline | — | ✓ |
-| URL detection in planner | — | ✓ |
-| WebCrawler, WebDocTagsMapper | ✓ shared | imports |
-| WebIngestionPipeline | ✓ shared | imports |
-| HybridRetriever, AgenticPipeline | ✓ owns | imports |
+| Web page ingestion (infrastructure) | ✓ | — |
+| Document + web query pipeline | ✓ | — |
+| Web RAG service (async API + CLI) | — | ✓ |
+| URL-aware step planning | — | ✓ |
+| Job store + TTL eviction | — | ✓ |
+| WebCrawler, WebDocTagsMapper | ✓ provides | imports |
+| WebIngestionPipeline | ✓ provides | imports |
+| HybridRetriever, AgenticPipeline | ✓ provides | imports |
