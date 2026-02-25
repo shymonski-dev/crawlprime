@@ -143,9 +143,11 @@ class CrawlPrimePipeline:
             document_ingestion_pipeline=self._storage,
         )
 
-        # Retrieval pipeline
+        # Retrieval pipeline — store the Qdrant manager so close() can release it
+        # (HybridRetriever.close() skips Qdrant when _owns_qdrant=False).
+        self._retrieval_qdrant = QdrantManager(config=qdrant_cfg)
         self._retriever = HybridRetriever(
-            qdrant_manager=QdrantManager(config=qdrant_cfg),
+            qdrant_manager=self._retrieval_qdrant,
             neo4j_manager=self._neo4j,
             vector_weight=vector_weight,
             graph_weight=_graph_weight,
@@ -219,11 +221,21 @@ class CrawlPrimePipeline:
 
     def close(self) -> None:
         """Release resources."""
-        for resource in (self._storage, self._retriever):
+        # Close ingestion pipeline (closes its own QdrantManager; leaves
+        # graph_ingestor open because _owns_graph_ingestor=False).
+        try:
+            self._storage.close()
+        except Exception:
+            pass
+        # Close retrieval Qdrant (not closed by HybridRetriever because
+        # _owns_qdrant=False when an explicit manager is passed).
+        for qdrant in (self._retrieval_qdrant,):
             try:
-                resource.close()
+                if qdrant is not None:
+                    qdrant.close()
             except Exception:
                 pass
+        # Close both Neo4j connections (retrieval + ingestion).
         for neo4j in (self._neo4j, getattr(self._graph_ingestor, "_neo4j_manager", None)):
             try:
                 if neo4j is not None:
